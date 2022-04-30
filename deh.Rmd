@@ -1,0 +1,91 @@
+---
+title: "Text Analysis"
+author: "Eva Wu"
+output: 
+  github_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(geniusr)
+library(rvest)
+library(tidytext)
+library(here)
+set.seed(123)
+theme_set(theme_minimal())
+```
+
+## Load the data
+
+```{r find_album, include = FALSE}
+# save API token to .Renviron
+genius_token()
+# access song info (retrieve artist ID)
+search_song("Only Us")
+# retrieve album ID
+get_song_df(2852527)
+deh_id <- 151756
+```
+
+```{r get_lyrics}
+# access album info 
+deh_tracks <- get_album_tracklist_id(151756) %>%
+  select(song_number, song_title)
+
+# since geniusr (and a ton of other packages) had copyright issues, I had to manually add the urls to a tibble
+song_lyrics_url = c("https://www.musixmatch.com/lyrics/Rachel-Bay-Jones-feat-Jennifer-Laura-Thompson/Anybody-Have-a-Map-2",
+         "https://www.musixmatch.com/lyrics/Ben-Platt-feat-Original-Broadway-Cast-of-Dear-Evan-Hansen/Waving-Through-a-Window-2",
+         "https://www.musixmatch.com/lyrics/Ben-Platt/For-Forever",
+         "https://www.musixmatch.com/lyrics/Mike-Faist-feat-Ben-Platt-Will-Roland/Sincerely-Me-2",
+         "https://www.musixmatch.com/lyrics/Laura-Dreyfuss-feat-Michael-Park-Jennifer-Laura-Thompson/Requiem-2",
+         "https://www.musixmatch.com/lyrics/Ben-Platt-feat-Laura-Dreyfuss/If-I-Could-Tell-Her-2",
+         "https://www.musixmatch.com/lyrics/Mike-Faist-feat-Ben-Platt-Kristolyn-Lloyd-Will-Roland-Jennifer-Laura-Thompson-Original-Broadway-Cast-of-Dear-Evan-Hansen/Disappear-2",
+         "https://www.musixmatch.com/lyrics/Ben-Platt-feat-Kristolyn-Lloyd-Will-Roland-Laura-Dreyfuss-Original-Broadway-Cast-of-Dear-Evan-Hansen/You-Will-Be-Found-2",
+         "https://www.musixmatch.com/lyrics/Michael-Park-feat-Ben-Platt/To-Break-in-a-Glove-2",
+         "https://www.musixmatch.com/lyrics/Laura-Dreyfuss-feat-Ben-Platt/Only-Us-2",
+         "https://www.musixmatch.com/lyrics/Rachel-Bay-Jones-feat-Kristolyn-Lloyd-Will-Roland-Ben-Platt/Good-for-You-2",
+         "https://www.musixmatch.com/lyrics/Ben-Platt/Words-Fail",
+         "https://www.musixmatch.com/lyrics/Rachel-Bay-Jones/So-Big-So-Small",
+         "https://www.musixmatch.com/lyrics/Ben-Platt-feat-Original-Broadway-Cast-of-Dear-Evan-Hansen/Finale-2")
+
+deh_info <- bind_cols(deh_tracks, song_lyrics_url)
+
+# Make a function called `scrape_songs()` that accepts a URL of an individual document, scrapes the page,
+# and returns a data frame containing the song's lyrics
+scrape_songs <- function(url){
+  # get HTML page
+  url_contents <- read_html(x = url)
+  # Use SelectorGadget to find a CSS selector that selects the title, singers, and lyrics
+  lyrics <- html_elements(x = url_contents, css = ".lyrics__content__ok") %>%
+    html_text2()
+  # return the data frame
+  return(url_data)
+}
+
+# test on a new statement
+scrape_songs("https://www.musixmatch.com/lyrics/Ben-Platt-feat-Original-Broadway-Cast-of-Dear-Evan-Hansen/Finale-2")
+
+# retrieve song lyrics by iterating the above function through every song in the album
+deh_lyrics <- deh_info %>%
+  mutate(lyrics = map(.x = song_lyrics_url, scrape_songs))
+```
+
+```{r unnest}
+# unnest and clean-up
+deh <- deh_lyrics %>%
+  unnest(cols = lyrics, names_repair = "universal") %>%
+  select(song_number, line, section_name, song_name) %>%
+  group_by(song_number) %>%
+  # add line number
+  mutate(line_num = row_number()) %>%
+  # reorder columns and convert speaker to title case
+  select(song_number, song_name, line_num, line, speaker = section_name) %>%
+  mutate(
+    speaker = str_to_title(speaker),
+    line = str_replace_all(line, "’", "'")
+  ) %>%
+  # write to disk
+  write_csv(path = here("deh.csv"))
+```
